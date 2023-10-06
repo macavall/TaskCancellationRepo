@@ -18,20 +18,44 @@ using System.Net;
 using Azure;
 using Microsoft.Azure.Cosmos.Fluent;
 using Microsoft.Azure.EventGrid;
+using System.Threading.Tasks;
+using Microsoft.Azure.Functions.Worker;
+using static Startup;
 
 internal class Program
 {
-    private static void Main(string[] args)
+    private static async Task Main(string[] args)
     {
         var host = new HostBuilder()
-        .ConfigureFunctionsWorkerDefaults()
         .ConfigureOpenApi()
-        .ConfigureLogging(logging => logging.AddFilter<ApplicationInsightsLoggerProvider>(null, LogLevel.Information))
         .ConfigureAppConfiguration(builder => Startup.ConfigureAppConfiguration(builder))
-
+        .ConfigureServices(services =>
+         {
+             services.AddApplicationInsightsTelemetryWorkerService();
+             services.ConfigureFunctionsApplicationInsights();
+             services.AddHttpClient();
+             services.AddAzureClients(builder =>
+             {
+                 builder.AddQueueServiceClient(Environment.GetEnvironmentVariable("AzureWebJobsStorage")).WithName("queue");
+             });
+         })
+        .ConfigureLogging(logging =>
+        {
+            StartupShared.RemoveApplicationInsightsFilter(logging.Services);
+            logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+            logging.AddFilter("Azure.Core", LogLevel.Warning);
+        })
+        .ConfigureServices(collection => Startup.Configure(collection))
+        .ConfigureFunctionsWorkerDefaults(app => app.UseAzureAppConfiguration())
         .Build();
 
-        host.Run();
+        //.ConfigureFunctionsWorkerDefaults()
+        //.ConfigureLogging(logging => logging.AddFilter<ApplicationInsightsLoggerProvider>(null, LogLevel.Information))
+        //.ConfigureAppConfiguration(builder => Startup.ConfigureAppConfiguration(builder))
+
+        //.Build();
+
+        await host.RunAsync();
     }
 }
 
@@ -228,7 +252,7 @@ internal static class Startup
 
 
 
-        private class  EnvironmentWrapper : IEnvironmentWrapper
+        private class EnvironmentWrapper : IEnvironmentWrapper
         {
         }
         private interface IOrganizationHelpers
@@ -266,7 +290,7 @@ internal static class Startup
     {
     }
 
-    private class ServiceBusNotificationClient: IServiceBusNotificationClient
+    private class ServiceBusNotificationClient : IServiceBusNotificationClient
     {
     }
 
